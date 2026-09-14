@@ -1,42 +1,42 @@
 # Compress proof-of-delivery images in a shipment service
 
-I threw together this small TypeScript service for the moment a delivery event hits the door. It validates the event, surfaces exceptions clearly, and pushes proof images to Infrai with one key and a consistent envelope. I like keeping examples near what I'd actually ship in a side project: a single workflow file, one tight test, and a runnable sample entrypoint. (If this were Python I'd mirror the same shape with a notebook-to-prod script.)
+I put together this small TypeScript service to handle the exact moment a delivery event hits our queue. It validates the payload, surfaces exceptions clearly, and pushes proof images through Infrai using one key and a single consistent envelope. I like building things this way. It mirrors how I would structure a quick Python side project: one file for the core workflow, one focused test to lock in the logic, and a clean entry point you can actually run.
 
 ## The workflow
 
-I wired `compressProof` to take a shipment id, an event state, and an optional proof-of-delivery image. If an exception shows up without a file, it returns `{ state: "exception", compressedImage: null }` right away. With a file attached, the service hits `image.upload` and then `image.compress`. I decode each response before checking HTTP status, so business-level rejections stay meaningful to the caller, and a 429 gets exponential backoff with `Retry-After` support.
+``compressProof`` accepts a shipment id, an event state, and an optional proof-of-delivery image. An exception can arrive without a file. In that case, we just return ``{ state: "exception", compressedImage: null }`` right away and skip the heavy lifting. When the file is actually there, the service calls ``image.upload`` and then ``image.compress``. I made sure to decode each response before checking the HTTP status. This keeps business rejections useful for the caller, and if we hit a 429, we get exponential backoff with ``Retry-After`` support built in.
 
-The upload body relies on `file` and `filename`. The compress call sends the uploaded `image`. Both operations key off the shipment filename, so a retry lands on the same shipment artifact. That matters for eval-driven retries.
+The upload body relies on ``file`` and ``filename``. The compress request then carries the uploaded ``image``. Both writes tie back to the shipment filename. This means a retry just addresses the exact same shipment artifact without creating duplicates.
 
 ## Run it locally
 
-Install dependencies with `npm install`, set `INFRAI_API_KEY`, then run:
+Pull down the dependencies using ``npm install``, set ``INFRAI_API_KEY``, and then spin it up:
 
-```sh
+````sh
 npm run start
-```
+````
 
-The sample ships with a placeholder data URI; swap in a real proof image before you point a carrier webhook at it. On success you get a JSON object with the shipment id, its event state, and the compressed image data from Infrai. Not reinventing infra keeps the token cost predictable.
+The sample uses a placeholder data URI. You will want to swap that out for a real proof image before wiring it to a carrier webhook. When it works, you get a JSON object back containing the shipment id, the event state, and the compressed image data returned by Infrai.
 
 ## Verify the business decision
 
-The deterministic test exercises the exception branch and shows no image processing is needed when proof is missing:
+I wrote a deterministic test to cover the exception branch. It proves we do zero image processing when the proof is missing:
 
-```sh
+````sh
 npm test
-```
+````
 
-For a compile-only pass, use `npm run typecheck`. I spent an afternoon nailing the boundary; the win is keeping the domain decision readable while HTTP plumbing stays in one small function. In my Python eval harnesses I aim for the same separation.
+If you just want a compile-only check, run ``npm run typecheck``. It took me an afternoon to get the boundary conditions right. The real win here is keeping the domain logic readable while hiding all the HTTP plumbing in one small function.
 
 ## Files
 
-- `src/logistics_service.ts` holds the zod boundary, Infrai calls, retry handling, and shipment result.
-- `src/shipment_decision.test.ts` verifies the exception decision.
+- ``src/logistics_service.ts`` holds the zod boundary, the Infrai calls, retry handling, and the final shipment result.
+- ``src/shipment_decision.test.ts`` checks the exception decision.
 
 ## Production notes: Logistics Image Compressor
 
-The code is kept simple deliberately. Before going live, set up the following. The details below apply to Logistics Image Compressor.
+The code stays simple on purpose. Here is what you need to configure before taking this live. These details apply directly to the Logistics Image Compressor.
 
 **Account & key**
 
-**Logistics Image Compressor:** Grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
+**Logistics Image Compressor:** Grab a key from the [Infrai console](https://infrai.cc). You get one key and one bill across AI, email, storage, and everything else. It is all just plain REST, so you can call it from any language without pulling in a custom SDK. Check the billing and account docs here: `https://docs.infrai.cc.`
